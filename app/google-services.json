@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "789137095928",
+    "project_id": "up-rotc-attendance-scanner",
+    "storage_bucket": "up-rotc-attendance-scanner.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:789137095928:android:fcce2a2c3f9f7c56aa4f0d",
+        "android_client_info": {
+          "package_name": "com.example.uprotcattendancescanner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAhpRHIGqwRtr8C9I6jxZydV_oJ4KlqWyE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:789137095928:android:09e9ea60b4d88780aa4f0d",
+        "android_client_info": {
+          "package_name": "com.example.uprotcscanner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAhpRHIGqwRtr8C9I6jxZydV_oJ4KlqWyE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
