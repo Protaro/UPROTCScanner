@@ -63,7 +63,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.guava)
-
+    implementation(libs.gson)
     // Add CameraX dependencies
     implementation(libs.androidx.camera.core) // CameraX core library
     implementation(libs.androidx.camera.camera2) // Camera2 implementation

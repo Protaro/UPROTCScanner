@@ -1,4 +1,5 @@
 [versions]
+gson = "2.8.9"
 androidx-camera = "1.4.0-alpha02"
 guava = "31.1-android"
 agp = "8.8.0"
@@ -25,6 +26,7 @@ cameraView = "1.4.1"
 cameraLifecycle = "1.4.1"
 
 [libraries]
+gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "androidx-camera" }
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "androidx-camera" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "androidx-camera" }

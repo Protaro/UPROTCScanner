@@ -6,19 +6,24 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
-import android.widget.*
-import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.ArrayAdapter
+import android.widget.AutoCompleteTextView
+import android.widget.Button
+import android.widget.TableLayout
+import android.widget.TableRow
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.core.content.ContextCompat
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -34,37 +39,30 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lrnAdapter: ArrayAdapter<String>
     private var userEmail: String = ""
     private var userCollection: String = ""
+    private val studentMap = mutableMapOf<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
+        window.statusBarColor = ContextCompat.getColor(this, R.color.my_primary)
 
-        // Handle window insets for edge-to-edge display
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
-
-        // Initialize Firebase Firestore
         firestore = FirebaseFirestore.getInstance()
-
-        // Initialize SharedPreferences
         sharedPreferences = getSharedPreferences("UserPrefs", Context.MODE_PRIVATE)
 
-        // Get user email and determine collection
         userEmail = sharedPreferences.getString("user_email", "") ?: ""
         userCollection = when {
             userEmail.contains("alpha@rotc.com") -> "Alpha"
             userEmail.contains("bravo@rotc.com") -> "Bravo"
             userEmail.contains("hhs@rotc.com") -> "HHS"
-            else -> "Default" // Add a default collection
+            userEmail.contains("admin@rotc.com") -> "Admin"
+            else -> "Default"
         }
+        Log.d("SharedPreferences", "Stored email: ${sharedPreferences.getString("user_email", "Not found")}")
+        Log.d("MainActivity", "User Collection: $userCollection")
+        Log.d("Firestore", "Using collection: $userCollection")
 
-        Log.d("MainActivity", "User Collection: $userCollection") // Debug log
 
-        // Initialize views
         tableLayout = findViewById(R.id.idTableLayoutAttendance)
         editTextName = findViewById(R.id.idEdtName)
         editTextLRN = findViewById(R.id.idEdtLRN)
@@ -72,56 +70,51 @@ class MainActivity : AppCompatActivity() {
         btnAddRow = findViewById(R.id.idBtnAddRow)
         btnClear = findViewById(R.id.idBtnClear)
 
-        // Set up adapters for AutoCompleteTextView
         nameAdapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line)
         lrnAdapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line)
         editTextName.setAdapter(nameAdapter)
         editTextLRN.setAdapter(lrnAdapter)
 
-        // Fetch autofill suggestions
+        // Set numeric keyboard for LRN input
+        editTextLRN.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+
         fetchAutofillSuggestions()
-
-        // Set up the logout button
         setupLogoutButton()
-
-        // Set up event listeners
         setupEventListeners()
+        restoreTableData()
     }
 
     private fun fetchAutofillSuggestions() {
         if (userCollection.isNotEmpty()) {
-            firestore.collection(userCollection).document("Students").get()
-                .addOnSuccessListener { document ->
-                    if (document.exists()) {
-                        val students = document.data?.get("students") as? List<Map<String, String>>
-                        students?.let {
-                            val names = it.mapNotNull { student -> student["name"] }
-                            val lrns = it.mapNotNull { student -> student["lrn"] }
-                            nameAdapter.clear()
-                            nameAdapter.addAll(names)
-                            lrnAdapter.clear()
-                            lrnAdapter.addAll(lrns)
+            firestore.collection(userCollection).get()
+                .addOnSuccessListener { documents ->
+                    studentMap.clear()
+                    for (document in documents) {
+                        val lrn = document.id
+                        val name = document.getString("Name") ?: ""
+                        if (name.isNotEmpty()) {
+                            studentMap[lrn] = name
                         }
-                    } else {
-                        Log.e("Firestore", "Document does not exist")
                     }
+
+                    Log.d("Firestore", "Fetched students: $studentMap")
+                    nameAdapter.clear()
+                    nameAdapter.addAll(studentMap.values)
+                    lrnAdapter.clear()
+                    lrnAdapter.addAll(studentMap.keys)
                 }
                 .addOnFailureListener { e ->
                     Log.e("Firestore", "Error fetching students: ${e.message}")
                 }
-        } else {
-            Log.e("Firestore", "User collection is empty")
         }
     }
 
     private fun setupLogoutButton() {
-        val signOutButton: Button = findViewById(R.id.btnLogout)
-        signOutButton.setOnClickListener {
+        findViewById<Button>(R.id.btnLogout).setOnClickListener {
             Toast.makeText(this, "Logging out...", Toast.LENGTH_SHORT).show()
             sharedPreferences.edit().apply {
                 putBoolean("isLoggedIn", false)
                 putLong("logTime", 0)
-                remove("remembered_email") // Clear saved email
                 apply()
             }
             startActivity(Intent(this, LoginActivity::class.java))
@@ -130,52 +123,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupEventListeners() {
-        // Scan button click listener
         btnScan.setOnClickListener {
             val intent = Intent(this, ScannerActivity::class.java)
             scannerLauncher.launch(intent)
         }
 
-        // Add row button click listener
         btnAddRow.setOnClickListener {
             val name = editTextName.text.toString().trim()
             val lrn = editTextLRN.text.toString().trim()
-            if (name.isNotEmpty() && lrn.isNotEmpty()) {
+            if (name.isNotEmpty() && lrn.matches(Regex("\\d{9}")) && studentMap[lrn] == name) {
                 addRowToTable(name, lrn)
-                addAttendanceToFirestore(name, lrn)
+                addAttendanceToFirestore(lrn)
                 editTextName.text.clear()
                 editTextLRN.text.clear()
             } else {
-                Toast.makeText(this, "Please enter both name and LRN", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Invalid name or LRN", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Clear button click listener
         btnClear.setOnClickListener {
             editTextName.text.clear()
             editTextLRN.text.clear()
         }
 
-        // Autocomplete LRN based on Name
+        editTextLRN.setOnItemClickListener { _, _, position, _ ->
+            val selectedLRN = lrnAdapter.getItem(position)
+            editTextName.setText(studentMap[selectedLRN])
+        }
+
         editTextName.setOnItemClickListener { _, _, position, _ ->
             val selectedName = nameAdapter.getItem(position)
-            if (selectedName != null) {
-                firestore.collection(userCollection).document("Students").get()
-                    .addOnSuccessListener { document ->
-                        if (document.exists()) {
-                            val students = document.data?.get("students") as? List<Map<String, String>>
-                            students?.let {
-                                val selectedStudent = it.find { student -> student["name"] == selectedName }
-                                selectedStudent?.let { student ->
-                                    editTextLRN.setText(student["lrn"])
-                                }
-                            }
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e("Firestore", "Error fetching LRN: ${e.message}")
-                    }
-            }
+            val selectedLRN = studentMap.entries.find { it.value == selectedName }?.key
+            editTextLRN.setText(selectedLRN)
         }
     }
 
@@ -183,80 +162,93 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
                 val scannedData = result.data?.getStringExtra("SCAN_RESULT")
-                if (scannedData != null) {
-                    lifecycleScope.launch {
-                        handleScannedData(scannedData)
-                    }
-                } else {
-                    Log.e("QRScan", "No data received from QR scanner.")
-                }
+                scannedData?.let { handleScannedData(it) }
             }
         }
 
-    private suspend fun handleScannedData(scannedData: String) {
-        Log.d("QRScan", "Scanned Data: $scannedData")
-        val student = firestore.collection(userCollection).document("Students").get().await()
-            .data?.get("students") as? List<Map<String, String>>
-        student?.let {
-            val scannedStudent = it.find { student -> student["lrn"] == scannedData }
-            scannedStudent?.let { student ->
-                editTextName.setText(student["name"])
-                editTextLRN.setText(student["lrn"])
-                addRowToTable(student["name"] ?: "", student["lrn"] ?: "")
-                addAttendanceToFirestore(student["name"] ?: "", student["lrn"] ?: "")
+    private fun handleScannedData(scannedData: String) {
+        studentMap[scannedData]?.let { name ->
+            editTextName.setText(name)
+            editTextLRN.setText(scannedData)
+        }
+    }
+
+    // Function to save table data locally
+    private fun saveTableData() {
+        val tableData = mutableListOf<Map<String, String>>()
+
+        for (i in 1 until tableLayout.childCount) {
+            val row = tableLayout.getChildAt(i) as? TableRow
+            row?.let {
+                val name = (row.getChildAt(0) as TextView).text.toString()
+                val lrn = (row.getChildAt(1) as TextView).text.toString()
+                val timestamp = (row.getChildAt(2) as TextView).text.toString()
+
+                tableData.add(mapOf("name" to name, "lrn" to lrn, "timestamp" to timestamp))
+            }
+        }
+
+        val editor = sharedPreferences.edit()
+        editor.putString("attendance_data", Gson().toJson(tableData))
+        editor.putString("last_saved_date", getCurrentDate()) // Store date to clear next day
+        editor.apply()
+    }
+
+    // Function to restore table data
+    private fun restoreTableData() {
+        val savedDate = sharedPreferences.getString("last_saved_date", "")
+        val currentDate = getCurrentDate()
+        if (savedDate != currentDate) {
+            // If a new day has started, clear the stored data
+            sharedPreferences.edit().remove("attendance_data").apply()
+            return
+        }
+
+        val json = sharedPreferences.getString("attendance_data", null)
+        if (!json.isNullOrEmpty()) {
+            val type = object : TypeToken<List<Map<String, String>>>() {}.type
+            val tableData: List<Map<String, String>> = Gson().fromJson(json, type)
+
+            for (entry in tableData) {
+                addRowToTable(entry["name"] ?: "", entry["lrn"] ?: "", entry["timestamp"] ?: "")
             }
         }
     }
 
-    private fun addRowToTable(name: String, lrn: String) {
-        val tableRow = TableRow(this).apply {
-            layoutParams = TableLayout.LayoutParams(
-                TableLayout.LayoutParams.MATCH_PARENT,
-                TableLayout.LayoutParams.WRAP_CONTENT
-            )
-            gravity = Gravity.CENTER
-        }
-
-        val textViewName = TextView(this).apply {
-            text = name
-            setPadding(10, 10, 10, 10)
-            gravity = Gravity.CENTER
-        }
-
-        val textViewLRN = TextView(this).apply {
-            text = lrn
-            setPadding(10, 10, 10, 10)
-            gravity = Gravity.CENTER
-        }
-
-        val textViewTimestamp = TextView(this).apply {
-            text = getCurrentTimestamp()
-            setPadding(10, 10, 10, 10)
-            gravity = Gravity.CENTER
-        }
-
-        tableRow.addView(textViewName)
-        tableRow.addView(textViewLRN)
-        tableRow.addView(textViewTimestamp)
+    // Modify addRowToTable to include timestamp
+    private fun addRowToTable(name: String, lrn: String, timestamp: String = getCurrentTimestamp()) {
+        val tableRow = TableRow(this)
+        tableRow.addView(createTextView(name))
+        tableRow.addView(createTextView(lrn))
+        tableRow.addView(createTextView(timestamp))
         tableLayout.addView(tableRow)
+
+        saveTableData() // Save data every time a row is added
     }
 
-    private fun addAttendanceToFirestore(name: String, lrn: String) {
-        val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val attendanceData = hashMapOf(
-            "name" to name,
-            "lrn" to lrn,
-            "timestamp" to getCurrentTimestamp()
-        )
+    // Function to get the current date (YYYY-MM-DD)
+    private fun getCurrentDate(): String {
+        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    }
 
-        firestore.collection(userCollection).document("Attendance").collection(currentDate)
-            .add(attendanceData)
-            .addOnSuccessListener {
-                Log.d("Firestore", "Attendance added successfully")
+    private fun addAttendanceToFirestore(lrn: String) {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val timestamp = getCurrentTimestamp()
+        val attendanceCollection = "$userCollection Attendance"
+
+        firestore.collection(attendanceCollection).document(currentDate)
+            .update(timestamp, lrn)
+            .addOnFailureListener {
+                firestore.collection(attendanceCollection).document(currentDate)
+                    .set(mapOf(timestamp to lrn))
             }
-            .addOnFailureListener { e ->
-                Log.e("Firestore", "Error adding attendance: ${e.message}")
-            }
+    }
+
+
+    private fun createTextView(text: String) = TextView(this).apply {
+        this.text = text
+        setPadding(10, 10, 10, 10)
+        gravity = Gravity.CENTER
     }
 
     private fun getCurrentTimestamp(): String {

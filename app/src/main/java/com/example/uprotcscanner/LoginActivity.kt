@@ -9,6 +9,7 @@ import android.text.Editable
 import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.method.PasswordTransformationMethod
+import android.util.Log
 import android.util.Patterns
 import android.view.MotionEvent
 import android.widget.Button
@@ -21,40 +22,45 @@ import com.google.firebase.auth.FirebaseAuth
 
 class LoginActivity : AppCompatActivity() {
 
-    private lateinit var auth: FirebaseAuth // Firebase Auth instance
-    private lateinit var sharedPreferences: android.content.SharedPreferences // SharedPreferences Instance
-    private var isPasswordVisible = false // Track password visibility
+    private lateinit var auth: FirebaseAuth
+    private lateinit var sharedPreferences: android.content.SharedPreferences
+    private var isPasswordVisible = false
 
     companion object {
-        private const val UP_ROTC = "uprotc" // SharedPreferences name
+        private const val UP_ROTC = "UserPrefs"
         private const val REMEMBERED_EMAIL = "remembered_email"
+        private const val USER_EMAIL = "user_email"
+        private const val IS_LOGGED_IN = "isLoggedIn"
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_login)
 
-        // Register the connectivity receiver
-
-        // Initialize Firebase Auth and SharedPreferences
         auth = FirebaseAuth.getInstance()
         sharedPreferences = getSharedPreferences(UP_ROTC, Context.MODE_PRIVATE)
 
-        // UI Elements
+        // Auto-login if user is already authenticated
+        if (sharedPreferences.getBoolean(IS_LOGGED_IN, false) && auth.currentUser != null) {
+            Log.d("LoginActivity", "User is already logged in, redirecting to MainActivity.")
+            startActivity(Intent(this, MainActivity::class.java))
+            finish()
+            return
+        }
+
+        setContentView(R.layout.activity_login)
+
         val emailEdt = findViewById<EditText>(R.id.idEdtEmail)
         val passwordEdt = findViewById<EditText>(R.id.idEdtPassword)
         val loginBtn = findViewById<Button>(R.id.idBtnLogin)
         val rememberMeCheckBox = findViewById<CheckBox>(R.id.idBtnRemember_me)
 
-        // Load saved email if "Remember Me" was checked
         val rememberedEmail = sharedPreferences.getString(REMEMBERED_EMAIL, null)
         if (!rememberedEmail.isNullOrEmpty()) {
             emailEdt.setText(rememberedEmail)
             rememberMeCheckBox.isChecked = true
         }
 
-        // Email validation
         emailEdt.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
@@ -71,7 +77,6 @@ class LoginActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        // Password visibility toggle
         passwordEdt.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_UP) {
                 if (event.rawX >= (passwordEdt.right - passwordEdt.compoundDrawables[2].bounds.width())) {
@@ -92,14 +97,13 @@ class LoginActivity : AppCompatActivity() {
                         null
                     )
                     passwordEdt.setSelection(passwordEdt.text.length)
-                    passwordEdt.performClick() // Notify accessibility services
+                    passwordEdt.performClick()
                     return@setOnTouchListener true
                 }
             }
             false
         }
 
-        // Login Button OnClickListener
         loginBtn.setOnClickListener {
             val email = emailEdt.text.toString().trim()
             val password = passwordEdt.text.toString().trim()
@@ -109,36 +113,32 @@ class LoginActivity : AppCompatActivity() {
             } else if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
                 Toast.makeText(this, "Please enter a valid email address", Toast.LENGTH_SHORT).show()
             } else {
-                loginUser (email, password, rememberMeCheckBox.isChecked)
+                loginUser(email, password, rememberMeCheckBox.isChecked)
             }
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-    }
-
-
-    private fun loginUser (email: String, password: String, rememberMe: Boolean) {
+    private fun loginUser(email: String, password: String, rememberMe: Boolean) {
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
                     val editor = sharedPreferences.edit()
+                    editor.putString(USER_EMAIL, email)
+                    editor.putBoolean(IS_LOGGED_IN, true)
 
-                    // Always save the email regardless of the checkbox state
-                    editor.putString(REMEMBERED_EMAIL, email)
+                    if (rememberMe) {
+                        editor.putString(REMEMBERED_EMAIL, email)
+                    } else {
+                        editor.remove(REMEMBERED_EMAIL)
+                    }
 
-                    // Save login status
-                    editor.putBoolean("isLoggedIn", true)
-                    editor.putLong("logTime", System.currentTimeMillis())
                     editor.apply()
 
-                    // Navigate to MainActivity
-                    val intent = Intent(this, MainActivity::class.java)
-                    startActivity(intent)
+                    Log.d("LoginActivity", "Stored email: ${sharedPreferences.getString(USER_EMAIL, "Not found")}")
+
+                    startActivity(Intent(this, MainActivity::class.java))
                     finish()
                 } else {
-                    // Login failed
                     val errorMessage = task.exception?.message ?: "Authentication failed"
                     Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show()
                 }
